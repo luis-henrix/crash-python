@@ -34,6 +34,8 @@ class Mount(CrashBaseClass):
     __type_callbacks__ = [ ('struct vfsmount', 'check_mount_type' ) ]
     __symbol_callbacks__ = [ ('init_task', 'check_task_interface' ) ]
 
+    mount_has_mnt_root = True
+
     @classmethod
     def for_each_mount_impl(cls, task):
         raise NotImplementedError("Mount.for_each_mount is unhandled on this kernel version.")
@@ -42,6 +44,8 @@ class Mount(CrashBaseClass):
     def check_mount_type(cls, gdbtype):
         try:
             cls.mount_type = gdb.lookup_type('struct mount')
+            if not 'mnt_root' in cls.mount_type.fields():
+                cls.mount_has_mnt_root = False
         except gdb.error:
             # Older kernels didn't separate mount from vfsmount
             cls.mount_type = cls.vfsmount_type
@@ -76,7 +80,7 @@ class Mount(CrashBaseClass):
     @export
     @classmethod
     def mount_flags(cls, mnt, show_hidden=False):
-        flags = long(mnt['mnt_flags'])
+        flags = long(cls.mount_field(mnt, 'mnt_flags'))
 
         if flags & MNT_READONLY:
             flagstr = "ro"
@@ -138,12 +142,20 @@ class Mount(CrashBaseClass):
             devname = "none"
         return devname
 
+    @classmethod
+    def mount_field(cls, mnt, field):
+        if mnt.type in [cls.mount_type, cls.mount_type.pointer()] and not cls.mount_has_mnt_root:
+            return mnt['mnt'][field]
+        else:
+            return mnt[field]
+
     @export
     @classmethod
-    def d_path(cls, mnt, dentry, root=None):
+    def d_path(cls, mnt, root=None):
         if root is None:
             root = cls.init_task['fs']['root']
 
+        dentry = cls.mount_field(mnt, 'mnt_root')
         if dentry.type.code != gdb.TYPE_CODE_PTR:
             dentry = dentry.address
 
@@ -159,8 +171,9 @@ class Mount(CrashBaseClass):
         # Gone are the days where finding the root was as simple as
         # dentry == dentry->d_parent
         while dentry != root['dentry'] or mnt != root['mnt']:
-            if dentry == mnt['mnt_root'] or dentry == dentry['d_parent']:
-                if dentry != mnt['mnt_root']:
+            r = cls.mount_field(mnt, 'mnt_root')
+            if dentry == r or dentry == dentry['d_parent']:
+                if dentry != r:
                     return None
                 if mount != mount['mnt_parent']:
                     dentry = mount['mnt_mountpoint']

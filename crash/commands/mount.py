@@ -63,7 +63,7 @@ NAME
         flags = ""
         if args.f:
             flags = " ({})".format(mount_flags(mnt))
-        path = d_path(mnt, mnt['mnt_root'])
+        path = d_path(mnt)
         if args.v:
             print("{:016x} {:016x}  {:<10} {:<16} {}"
                   .format(long(mnt.address), long(mount_super(mnt)),
